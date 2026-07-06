@@ -1,0 +1,23 @@
+# Local Codex/agent state
+.agents/
+.codex/
+
+# IDE-local state
+MDK-ARM/.vscode/
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.uvoptx
+
+# Keil build output
+MDK-ARM/ByCar/
+MDK-ARM/*.lst
+MDK-ARM/tmp/
+
+# Generic generated objects
+*.o
+*.d
+*.crf
+*.axf
+*.hex
+*.map
+*.lnp
+*.dep
