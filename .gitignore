@@ -1,0 +1,31 @@
+# Keil MDK-ARM build outputs
+MDK-ARM/*/RTE/
+MDK-ARM/*/DebugConfig/
+MDK-ARM/*/Listings/
+MDK-ARM/*/Objects/
+MDK-ARM/*/*.o
+MDK-ARM/*/*.d
+MDK-ARM/*/*.crf
+MDK-ARM/*/*.dep
+MDK-ARM/*/*.hex
+MDK-ARM/*/*.htm
+MDK-ARM/*/*.lnp
+MDK-ARM/*/*.map
+MDK-ARM/*/*.sct
+MDK-ARM/*/*.axf
+MDK-ARM/*/*.iex
+MDK-ARM/*/*.build_log.htm
+
+# Keil user-specific settings
+MDK-ARM/*.uvguix.*
+
+# Listing files (generated)
+MDK-ARM/*.lst
+
+# JLink
+JLinkLog.txt
+JLinkSettings.ini
+
+# Misc
+*.bak
+*.tmp
