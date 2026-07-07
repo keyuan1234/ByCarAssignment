@@ -189,7 +189,7 @@ void StartDefaultTask(void *argument)
   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
-  printf("系统初始化完成\r\n");
+  printf("系统初始化完成\n");
   for(;;)
   {
     /* 每10次（1秒）打印一次状态 */
@@ -293,9 +293,9 @@ void StartTaskControlSpeed(void *argument)
     encoder_accum_A += delta_A;
     encoder_accum_B += delta_B;
 
-    /* 速度换算：脉冲增量 → 脉冲/秒 → mm/s（含减速比） */
-    speed_A = (delta_A / SPEED_DT) / (ENCODER_PPR * GEAR_RATIO) * WHEEL_CIRCUMFERENCE_MM;
-    speed_B = (delta_B / SPEED_DT) / (ENCODER_PPR * GEAR_RATIO) * WHEEL_CIRCUMFERENCE_MM;
+    /* 速度换算：脉冲增量 → 脉冲/秒 → mm/s */
+    speed_A = (delta_A / SPEED_DT) / ENCODER_PPR * WHEEL_CIRCUMFERENCE_MM;
+    speed_B = (delta_B / SPEED_DT) / ENCODER_PPR * WHEEL_CIRCUMFERENCE_MM;
     current_speed_A = speed_A;
     current_speed_B = speed_B;
 
