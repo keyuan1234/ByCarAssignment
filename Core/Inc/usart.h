@@ -41,18 +41,6 @@ extern UART_HandleTypeDef huart1;
 void MX_USART1_UART_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-#include <stdint.h>
-
-/* 串口接收环形缓冲区 */
-#define UART_RX_BUF_SIZE 128
-
-extern volatile uint8_t uart_rx_buf[UART_RX_BUF_SIZE];
-extern volatile uint16_t uart_rx_head;
-extern volatile uint16_t uart_rx_tail;
-
-uint16_t uart_rx_available(void);
-uint8_t  uart_rx_get_char(void);
-void     uart_rx_flush(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus
