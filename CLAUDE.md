@@ -18,7 +18,7 @@ UV4 -b MDK-ARM/7.6.uvprojx -o build.log
 
 - 编译器: ARM Compiler 5 (armcc)
 - 目标芯片: STM32F103RC
-- **使用标准库，非 Microlib**（通过 `startup_stm32f103xe.lst` 确认 `__MICROLIB` 未定义）
+- **使用 MicroLib**（Keil 勾选 Use MicroLib），printf 通过 `fputc` 重定向到 `HAL_UART_Transmit`
 
 ## 硬件架构
 
@@ -47,9 +47,12 @@ UV4 -b MDK-ARM/7.6.uvprojx -o build.log
 
 ### 编码器参数
 
-- ×4 倍频模式 (`TIM_ENCODERMODE_TI12`)，500 线编码器 → 2000 脉冲/转
+- 编码器规格: 2000 PPR（物理线数），×4 倍频后 = **8000 计数/转**（电机轴）
+- 编码器模式: ×4 倍频 (`TIM_ENCODERMODE_TI12`)
+- 电机带减速箱，**减速比 ≈ 7.5:1**（待确认精确值：输出轴转一圈显示约 15000 脉冲 → 60000 计数 → 60000/8000 = 7.5 圈电机轴）
 - 16 位计数器，溢出通过 `(int32_t)(int16_t)(raw - last)` 自动处理
-- 编码器引脚配置为 `GPIO_MODE_INPUT`, `GPIO_NOPULL`
+- 编码器引脚配置为 `GPIO_MODE_INPUT`, `GPIO_PULLUP`（PA10 上拉）
+- **A 轮编码器疑似未连接**（始终为 0），B 轮编码器正常
 
 ## FreeRTOS 任务架构
 
@@ -93,7 +96,8 @@ EncoderTask → encoder_count → ControlSpeedTas(PID) → motor_pwm → Control
 ### 关键变量（freertos.c 全局）
 
 ```c
-volatile int32_t encoder_count_A, encoder_count_B;  // 编码器原始值
+volatile int32_t encoder_count_A, encoder_count_B;  // 硬件CNT瞬时值（int16_t范围）
+volatile int32_t encoder_accum_A, encoder_accum_B;  // 编码器累计脉冲（4倍频值）
 volatile float motor_pwm_A, motor_pwm_B;             // PID 输出 [-100, 100]
 volatile float speed_target_A, speed_target_B;       // 目标速度 mm/s
 volatile float current_speed_A, current_speed_B;     // 当前速度 mm/s
@@ -103,8 +107,10 @@ PID_HandleTypeDef pid_A, pid_B;                      // PID 参数
 ### 物理参数宏（freertos.c）
 
 ```c
-#define ENCODER_PPR              2000        // 编码器脉冲/转（4倍频后理论值）
-#define WHEEL_DIAMETER_MM        65.0f       // 轮子直径 mm（需实际测量后修改）
+#define ENCODER_PPR_PHYSICAL     2000        // 编码器物理线数
+#define ENCODER_QUADRATURE       4           // 4倍频
+#define ENCODER_PPR              (ENCODER_PPR_PHYSICAL * ENCODER_QUADRATURE) // 8000
+#define WHEEL_DIAMETER_MM        70.0f       // 轮子直径 mm（需实际测量后修改）
 #define WHEEL_CIRCUMFERENCE_MM   (3.1415926f * WHEEL_DIAMETER_MM)
 #define SPEED_DT                 0.01f       // 速度测量周期 10ms
 ```
@@ -112,8 +118,10 @@ PID_HandleTypeDef pid_A, pid_B;                      // PID 参数
 ### 速度换算公式
 
 ```
-speed(mm/s) = (delta / 0.01s) / 2000 * (π × 65mm)
+speed(mm/s) = (delta / 0.01s) / 8000 * (π × 70mm)
 ```
+- delta: 10ms 内 4倍频计数增量
+- 电机轴转一圈 = 8000 计数 → speed = 8000/0.01/8000 * π*70 ≈ 220 mm/s
 
 ### PID 相关
 
@@ -123,15 +131,21 @@ speed(mm/s) = (delta / 0.01s) / 2000 * (π × 65mm)
 
 ## 串口输出
 
-- fputc 重定向到 `HAL_UART_Transmit(&huart1, ...)`
-- 使用标准库（非 Microlib），printf 调用链: `printf → __2printf → _printf_char_file → fputc → HAL_UART_Transmit`
-- 当前只有 TX 输出，无 RX 中断接收
+- MicroLib + `fputc` 重定向到 `HAL_UART_Transmit(&huart1, ...)`
+- `UART_MODE_TX` 仅发送，无 RX 中断
 - 波特率: 115200-8N1
+- printf 每秒输出: `A_Speed:mm/s Pulse:累计脉冲 | B_Speed:mm/s Pulse:累计脉冲`
+
+## PID 控制
+
+- 当前: **增量式 PI** — `Δu = Kp*(e[k]-e[k-1]) + Ki*e[k]`, `u += Δu`
+- Kd 保留在结构体中但未使用
+- 输出限幅: [-100, 100] 对应占空比百分比
 
 ## 已知待完成事项
 
-按优先级排列:
-1. **串口修复**: 添加 UART RX 中断 + 环形缓冲区 + `_sys_write`（确保 printf 可靠性）
-2. **开环控制**: `control_mode` 变量 + `openloop_pwm_A/B` + 串口命令解析
-3. **增量式 PI**: 替换位置式 PID_Calculate()，PI 只用比例积分
-4. **数据记录**: CSV 格式输出速度响应曲线，支持 START_LOG/STOP_LOG
+1. **减速比确认**: 实测输出轴转一圈显示约 15000 脉冲（预期 2000），减速比约 7.5:1，需确认精确值并加入 ENCODER_PPR 计算
+2. **编码器校准**: 将减速比纳入速度公式，使显示值和实际速度一致
+3. **A 轮编码器**: 排查 A 轮编码器接线（始终为 0，B 轮正常）
+4. **串口接收**: 后续可添加 UART RX 中断 + 环形缓冲区 + 串口命令解析
+5. **数据记录**: CSV 格式输出速度响应曲线
