@@ -49,6 +49,7 @@ typedef struct {
 #define ENCODER_PPR_PHYSICAL     2000        /* 编码器物理线数（转一圈的AB周期数） */
 #define ENCODER_QUADRATURE       4           /* 4倍频 (TIM_ENCODERMODE_TI12) */
 #define ENCODER_PPR              (ENCODER_PPR_PHYSICAL * ENCODER_QUADRATURE) /* 4倍频后 8000计数/转 */
+#define GEAR_RATIO               7.5f        /* 电机减速比（待实测确认精确值） */
 #define WHEEL_DIAMETER_MM        70.0f       /* 轮子直径 mm（量完修改） */
 #define WHEEL_CIRCUMFERENCE_MM   (3.1415926f * WHEEL_DIAMETER_MM) /* 周长 */
 #define SPEED_DT                 0.01f       /* 速度测量周期 10ms */
@@ -195,8 +196,8 @@ void StartDefaultTask(void *argument)
     if (++print_counter >= 10) {
       print_counter = 0;
       printf("A_Speed:%.1fmm/s Pulse:%ld | B_Speed:%.1fmm/s Pulse:%ld\r\n",
-             current_speed_A, (long)(encoder_accum_A / ENCODER_QUADRATURE),
-             current_speed_B, (long)(encoder_accum_B / ENCODER_QUADRATURE));
+             current_speed_A, (long)(encoder_accum_A / (ENCODER_QUADRATURE * GEAR_RATIO)),
+             current_speed_B, (long)(encoder_accum_B / (ENCODER_QUADRATURE * GEAR_RATIO)));
     }
     osDelay(100);
   }
@@ -292,9 +293,9 @@ void StartTaskControlSpeed(void *argument)
     encoder_accum_A += delta_A;
     encoder_accum_B += delta_B;
 
-    /* 速度换算：脉冲增量 → 脉冲/秒 → mm/s */
-    speed_A = (delta_A / SPEED_DT) / ENCODER_PPR * WHEEL_CIRCUMFERENCE_MM;
-    speed_B = (delta_B / SPEED_DT) / ENCODER_PPR * WHEEL_CIRCUMFERENCE_MM;
+    /* 速度换算：脉冲增量 → 脉冲/秒 → mm/s（含减速比） */
+    speed_A = (delta_A / SPEED_DT) / (ENCODER_PPR * GEAR_RATIO) * WHEEL_CIRCUMFERENCE_MM;
+    speed_B = (delta_B / SPEED_DT) / (ENCODER_PPR * GEAR_RATIO) * WHEEL_CIRCUMFERENCE_MM;
     current_speed_A = speed_A;
     current_speed_B = speed_B;
 
