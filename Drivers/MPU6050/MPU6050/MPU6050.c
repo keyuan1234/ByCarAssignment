@@ -102,11 +102,11 @@ static void run_self_test(void)
         accel[1] *= accel_sens;
         accel[2] *= accel_sens;
         dmp_set_accel_bias(accel);
-		printf("setting bias succesfully ......\n");
+		printf("#mpu,setting_bias_successfully\r\n");
     }
 	else
 	{
-		printf("bias has not been modified ......\n");
+		printf("#mpu,bias_not_modified\r\n");
 	}
 
     /* Report results. */
@@ -116,53 +116,53 @@ int MPU_init(void)
 {
 	if (mpu_init() != 0)
 		return 0;
-	printf("mpu initialization complete......\n");
+	printf("#mpu,initialization_complete\r\n");
 	//mpu_set_sensor
 	if(!mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL))
-		printf("mpu_set_sensor complete ......\n");
+		printf("#mpu,set_sensor_complete\r\n");
 	else
 	{
-		printf("mpu_set_sensor come across error ......\n");
+		printf("#mpu,set_sensor_error\r\n");
 		return 0;
 	}
 	//mpu_configure_fifo
 	if(!mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL))
 	{
-		printf("mpu_configure_fifo complete ......\n");
+		printf("#mpu,configure_fifo_complete\r\n");
 	}
 	else
 	{
-		printf("mpu_configure_fifo come across error ......\n");
+		printf("#mpu,configure_fifo_error\r\n");
 		return 0;
 	}
 	//mpu_set_sample_rate
 	if(!mpu_set_sample_rate(DEFAULT_MPU_HZ))
 	{
-		printf("mpu_set_sample_rate complete ......\n");
+		printf("#mpu,set_sample_rate_complete\r\n");
 	}
 	else
 	{
-		printf("mpu_set_sample_rate error ......\n");
+		printf("#mpu,set_sample_rate_error\r\n");
 		return 0;
 	}
 	//dmp_load_motion_driver_firmvare
 	if(!dmp_load_motion_driver_firmware())
 	{
-		printf("dmp_load_motion_driver_firmware complete ......\n");
+		printf("#mpu,dmp_load_firmware_complete\r\n");
 	}
 	else
 	{
-		printf("dmp_load_motion_driver_firmware come across error ......\n");
+		printf("#mpu,dmp_load_firmware_error\r\n");
 		return 0;
 	}
 	//dmp_set_orientation
 	if(!dmp_set_orientation(inv_orientation_matrix_to_scalar(gyro_orientation)))
 	{
-		printf("dmp_set_orientation complete ......\n");
+		printf("#mpu,dmp_set_orientation_complete\r\n");
 	}
 	else
 	{
-		printf("dmp_set_orientation come across error ......\n");
+		printf("#mpu,dmp_set_orientation_error\r\n");
 		return 0;
 	}
 	//dmp_enable_feature
@@ -170,31 +170,31 @@ int MPU_init(void)
 				DMP_FEATURE_ANDROID_ORIENT | DMP_FEATURE_SEND_RAW_ACCEL | DMP_FEATURE_SEND_CAL_GYRO |
 				DMP_FEATURE_GYRO_CAL))
 	{
-		printf("dmp_enable_feature complete ......\n");
+		printf("#mpu,dmp_enable_feature_complete\r\n");
 	}
 	else
 	{
-		printf("dmp_enable_feature come across error ......\n");
+		printf("#mpu,dmp_enable_feature_error\r\n");
 		return 0;
 	}
 	//dmp_set_fifo_rate
 	if(!dmp_set_fifo_rate(DEFAULT_MPU_HZ))
 	{
-		printf("dmp_set_fifo_rate complete ......\n");
+		printf("#mpu,dmp_set_fifo_rate_complete\r\n");
 	}
 	else
 	{
-		printf("dmp_set_fifo_rate come across error ......\n");
+		printf("#mpu,dmp_set_fifo_rate_error\r\n");
 		return 0;
 	}
 	run_self_test();
 	if(!mpu_set_dmp_state(1))
 	{
-		printf("mpu_set_dmp_state complete ......\n");
+		printf("#mpu,set_dmp_state_complete\r\n");
 	}
 	else
 	{
-		printf("mpu_set_dmp_state come across error ......\n");
+		printf("#mpu,set_dmp_state_error\r\n");
 		return 0;
 	}
 	

@@ -129,11 +129,34 @@ static uint8_t I2C_ReceiveByte(void)
 void i2cInit(void)
 {
     GPIO_InitTypeDef gpio;
-	//ÒÑ¸ü¸Ä
+
+    HAL_GPIO_WritePin(I2C_GPIO, PIN_SCL | PIN_SDA, GPIO_PIN_SET);
     gpio.Pin = PIN_SCL | PIN_SDA;
-    gpio.Speed = GPIO_SPEED_FREQ_MEDIUM;
     gpio.Mode = GPIO_MODE_OUTPUT_OD;
+    gpio.Pull = GPIO_PULLUP;
+    gpio.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(I2C_GPIO, &gpio);
+}
+
+void i2cUnstick(void)
+{
+    uint8_t i;
+
+    SDA_H;
+    SCL_H;
+    I2C_delay();
+
+    for (i = 0U; i < 9U; i++) {
+        if (SDA_read) {
+            break;
+        }
+        SCL_L;
+        I2C_delay();
+        SCL_H;
+        I2C_delay();
+    }
+
+    I2C_Stop();
 }
 
 bool i2cWriteBuffer(uint8_t addr, uint8_t reg, uint8_t len, uint8_t * data)

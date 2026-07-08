@@ -3,6 +3,7 @@
 "bycar\main.o"
 "bycar\gpio.o"
 "bycar\freertos.o"
+"bycar\motor_control.o"
 "bycar\tim.o"
 "bycar\usart.o"
 "bycar\stm32f1xx_it.o"

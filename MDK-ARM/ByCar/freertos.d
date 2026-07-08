@@ -39,8 +39,12 @@ bycar\freertos.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h
 bycar\freertos.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h
 bycar\freertos.o: ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os.h
 bycar\freertos.o: ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.h
-bycar\freertos.o: ../Drivers/MPU6050/MPU6050/MPU6050.h
-bycar\freertos.o: ../Drivers/MPU6050/MPU6050/inv_mpu.h
-bycar\freertos.o: ../Drivers/MPU6050/MPU6050/inv_mpu_dmp_motion_driver.h
-bycar\freertos.o: ../Drivers/MPU6050/MPU6050/STM32_I2C.h
+bycar\freertos.o: ../Core/Inc/motor_control.h
+bycar\freertos.o: ..\Drivers\MPU6050\MPU6050\MPU6050.h
+bycar\freertos.o: ..\Drivers\MPU6050\MPU6050\inv_mpu.h
+bycar\freertos.o: ..\Drivers\MPU6050\MPU6050\inv_mpu_dmp_motion_driver.h
+bycar\freertos.o: ..\Drivers\MPU6050\MPU6050\STM32_I2C.h
+bycar\freertos.o: ../Core/Inc/usart.h
+bycar\freertos.o: D:\Keil\keil5\ARM\ARMCC\Bin\..\include\math.h
 bycar\freertos.o: D:\Keil\keil5\ARM\ARMCC\Bin\..\include\stdio.h
+bycar\freertos.o: D:\Keil\keil5\ARM\ARMCC\Bin\..\include\string.h
