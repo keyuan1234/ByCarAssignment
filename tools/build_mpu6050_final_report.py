@@ -30,6 +30,7 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "output" / "final_report"
 PLOT_DIR = OUT_DIR / "plots"
+DIAGRAM_OUT = OUT_DIR / "mpu6050_connection_diagram.png"
 DOCX_OUT = ROOT / "output" / "docx" / "学号_姓名_MPU6050实验报告.docx"
 PDF_OUT = ROOT / "output" / "pdf" / "学号_姓名.pdf"
 PITCH_SIGN = -1.0
@@ -193,6 +194,54 @@ def draw_plot(rows: list[dict[str, float | str]], title: str, out_path: Path) ->
     image.save(out_path)
 
 
+def draw_connection_diagram(out_path: Path) -> None:
+    width, height = 1200, 560
+    image = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(image)
+    title_font = load_font(28)
+    label_font = load_font(22)
+    small_font = load_font(18)
+
+    stm = (90, 115, 430, 450)
+    mpu = (770, 115, 1110, 450)
+    draw.rounded_rectangle(stm, radius=18, outline="black", width=4)
+    draw.rounded_rectangle(mpu, radius=18, outline="black", width=4)
+    draw.text(((stm[0] + stm[2]) // 2, 150), "STM32F103", fill="black", font=title_font, anchor="ma")
+    draw.text(((stm[0] + stm[2]) // 2, 188), "ByCar Main Board", fill="black", font=small_font, anchor="ma")
+    draw.text(((stm[0] + stm[2]) // 2, 218), "USART1", fill="black", font=small_font, anchor="ma")
+    draw.text(((stm[0] + stm[2]) // 2, 242), "PA9 TX / PA10 RX", fill="black", font=small_font, anchor="ma")
+    draw.text(((mpu[0] + mpu[2]) // 2, 150), "MPU6050", fill="black", font=title_font, anchor="ma")
+    draw.text(((mpu[0] + mpu[2]) // 2, 188), "6-axis IMU Module", fill="black", font=small_font, anchor="ma")
+
+    connections = [
+        ("PB14", "SCL", 270, "I2C Clock"),
+        ("PB15", "SDA", 315, "I2C Data"),
+        ("3V3", "VCC", 360, "Power"),
+        ("GND", "GND", 405, "Ground"),
+    ]
+    optional = ("PB9", "INT", 445, "Optional Interrupt")
+
+    for left, right, y, note in connections:
+        draw.text((stm[2] - 35, y), left, fill="black", font=label_font, anchor="rm")
+        draw.text((mpu[0] + 35, y), right, fill="black", font=label_font, anchor="lm")
+        draw.line([(stm[2], y), (mpu[0], y)], fill="black", width=3)
+        draw.polygon([(mpu[0] - 12, y - 6), (mpu[0], y), (mpu[0] - 12, y + 6)], outline="black", fill="white")
+        draw.text((600, y - 12), note, fill="black", font=small_font, anchor="ma")
+
+    left, right, y, note = optional
+    draw.text((stm[2] - 35, y), left, fill="black", font=label_font, anchor="rm")
+    draw.text((mpu[0] + 35, y), right, fill="black", font=label_font, anchor="lm")
+    x = stm[2]
+    while x < mpu[0]:
+        draw.line([(x, y), (min(x + 18, mpu[0]), y)], fill="black", width=2)
+        x += 34
+    draw.text((600, y - 12), note, fill="black", font=small_font, anchor="ma")
+
+    draw.text((width // 2, 40), "MPU6050 to STM32 Wiring Diagram", fill="black", font=title_font, anchor="ma")
+    draw.text((width // 2, 515), "PB14/PB15: software I2C   3V3/GND: power reference   PB9 INT: optional", fill="black", font=small_font, anchor="ma")
+    image.save(out_path)
+
+
 def set_run(run, size: float = 10.5, bold: bool = False, font: str = "SimSun") -> None:
     run.font.name = font
     run._element.rPr.rFonts.set(qn("w:eastAsia"), font)
@@ -276,6 +325,8 @@ def build_docx(all_rows: dict[str, list[dict[str, float | str]]], plot_paths: di
     add_para(doc, "文件名占位：学号_姓名.pdf / 学号_姓名.docx", size=10, align=WD_ALIGN_PARAGRAPH.CENTER)
 
     add_heading(doc, "一、实验连接与采集设置")
+    doc.add_picture(str(DIAGRAM_OUT), width=Inches(6.4))
+    add_para(doc, "图：MPU6050 与 STM32 的 I2C、供电和串口连接。", size=9, align=WD_ALIGN_PARAGRAPH.CENTER)
     add_table(
         doc,
         [
@@ -309,6 +360,7 @@ def build_docx(all_rows: dict[str, list[dict[str, float | str]]], plot_paths: di
         ])
     add_table(doc, overview, [0.85, 1.05, 0.8, 0.75, 0.75, 0.75, 1.55], font_size=8)
 
+    doc.add_page_break()
     add_heading(doc, "三、静止原始数据记录")
     static_rows = all_rows["static"][:10]
     raw_table = [["序号", "ms", "ax_raw", "ay_raw", "az_raw", "gx_raw", "gy_raw", "gz_raw", "pitch_dmp"]]
@@ -403,6 +455,8 @@ def build_pdf(all_rows: dict[str, list[dict[str, float | str]]], plot_paths: dic
 
     story = [Paragraph("MPU6050 传感器通信与姿态解算实验报告", title), Paragraph("文件名占位：学号_姓名.pdf", caption)]
     story += [Paragraph("一、实验连接与采集设置", h1)]
+    story.append(PdfImage(str(DIAGRAM_OUT), width=6.2 * inch, height=2.9 * inch))
+    story.append(Paragraph("图：MPU6050 与 STM32 的 I2C、供电和串口连接。", caption))
     story.append(pdf_table([
         ["STM32 引脚", "MPU6050 引脚", "说明"],
         ["PB14", "SCL", "软件 I2C 时钟线"],
@@ -425,6 +479,7 @@ def build_pdf(all_rows: dict[str, list[dict[str, float | str]]], plot_paths: dic
         overview.append([meta["label"], meta["file"].name, str(len(rows)), f"{duration:.2f}", f"{period:.1f}", f"{1000.0 / period:.1f}", f"{pitch['min']:.2f} ~ {pitch['max']:.2f}"])
     story.append(pdf_table(overview, [0.75, 0.85, 0.55, 0.65, 0.65, 0.65, 1.5], font, 7.5))
 
+    story.append(PageBreak())
     story.append(Paragraph("三、静止原始数据记录", h1))
     raw_table = [["序号", "ms", "ax_raw", "ay_raw", "az_raw", "gx_raw", "gy_raw", "gz_raw", "pitch_dmp"]]
     for i, row in enumerate(all_rows["static"][:10], 1):
@@ -478,6 +533,7 @@ def build_pdf(all_rows: dict[str, list[dict[str, float | str]]], plot_paths: dic
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     PLOT_DIR.mkdir(parents=True, exist_ok=True)
+    draw_connection_diagram(DIAGRAM_OUT)
     all_rows: dict[str, list[dict[str, float | str]]] = {}
     plot_paths: dict[str, Path] = {}
     for key, meta in DATASETS.items():
