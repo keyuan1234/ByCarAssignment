@@ -8,23 +8,27 @@ extern "C" {
 #include "balance_types.h"
 
 #ifndef BALANCE_MIDDLE_ANGLE_DEG
-#define BALANCE_MIDDLE_ANGLE_DEG      1.0f
+#define BALANCE_MIDDLE_ANGLE_DEG      0.0f
 #endif
 
 #ifndef BALANCE_KP
-#define BALANCE_KP                    (27000.0f / 100.0f)
+#define BALANCE_KP                    (37000.0f / 100.0f)
 #endif
 
 #ifndef BALANCE_KD
-#define BALANCE_KD                    (110.0f / 100.0f)
+#define BALANCE_KD                    ((40.0f * 16.4f) / 100.0f)
 #endif
 
 #ifndef BALANCE_VELOCITY_KP
-#define BALANCE_VELOCITY_KP           (400.0f / 100.0f)
+#define BALANCE_VELOCITY_KP           (80.0f / 100.0f)
+#endif
+
+#ifndef BALANCE_ENABLE_VELOCITY_LOOP
+#define BALANCE_ENABLE_VELOCITY_LOOP   1U
 #endif
 
 #ifndef BALANCE_VELOCITY_KI
-#define BALANCE_VELOCITY_KI           (2.0f / 100.0f)
+#define BALANCE_VELOCITY_KI           0.0f
 #endif
 
 #ifndef BALANCE_TILT_SHUTDOWN_DEG
@@ -44,7 +48,19 @@ extern "C" {
 #endif
 
 #ifndef BALANCE_VELOCITY_INTEGRAL_LIMIT
-#define BALANCE_VELOCITY_INTEGRAL_LIMIT  380000.0f
+#define BALANCE_VELOCITY_INTEGRAL_LIMIT  80000.0f
+#endif
+
+#ifndef BALANCE_VELOCITY_PWM_LIMIT
+#define BALANCE_VELOCITY_PWM_LIMIT       1000.0f
+#endif
+
+#ifndef BALANCE_VELOCITY_INTEGRAL_ANGLE_DEG
+#define BALANCE_VELOCITY_INTEGRAL_ANGLE_DEG  8.0f
+#endif
+
+#ifndef BALANCE_VELOCITY_INTEGRAL_DECAY
+#define BALANCE_VELOCITY_INTEGRAL_DECAY  0.92f
 #endif
 
 typedef struct

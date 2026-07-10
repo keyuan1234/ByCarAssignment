@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 #ifndef MOTOR_RIGHT_ENCODER_SIGN
-#define MOTOR_RIGHT_ENCODER_SIGN      1
+#define MOTOR_RIGHT_ENCODER_SIGN      -1
 #endif
 
 #ifndef MOTOR_LEFT_COMMAND_SIGN

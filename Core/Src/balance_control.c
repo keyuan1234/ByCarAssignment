@@ -32,6 +32,26 @@ static uint8_t Balance_IsTilted(float angle)
                    (angle < -BALANCE_TILT_SHUTDOWN_DEG));
 }
 
+#if BALANCE_ENABLE_VELOCITY_LOOP
+static float Balance_AbsFloat(float value)
+{
+  return (value < 0.0f) ? -value : value;
+}
+
+static float Balance_ClampFloat(float value, float limit)
+{
+  if (value > limit)
+  {
+    return limit;
+  }
+  if (value < -limit)
+  {
+    return -limit;
+  }
+  return value;
+}
+#endif
+
 void BalanceControl_Init(BalanceController_t *controller)
 {
   BalanceControl_Reset(controller);
@@ -56,10 +76,12 @@ BalanceOutput_t BalanceControl_Update(BalanceController_t *controller,
   float angle_bias;
   float gyro_bias;
   float balance_pwm;
-  float encoder_least;
   float velocity_pwm;
   float left_pwm;
   float right_pwm;
+#if BALANCE_ENABLE_VELOCITY_LOOP
+  float encoder_least;
+#endif
 
   output.balance_pwm = 0;
   output.velocity_pwm = 0;
@@ -86,10 +108,18 @@ BalanceOutput_t BalanceControl_Update(BalanceController_t *controller,
   gyro_bias = 0.0f - sample->gyro_pitch_dps;
   balance_pwm = (-BALANCE_KP * angle_bias) - (BALANCE_KD * gyro_bias);
 
+#if BALANCE_ENABLE_VELOCITY_LOOP
   encoder_least = 0.0f - ((float)encoder_left + (float)encoder_right);
   controller->encoder_bias = (controller->encoder_bias * BALANCE_ENCODER_FILTER_KEEP) +
                              (encoder_least * BALANCE_ENCODER_FILTER_NEW);
-  controller->encoder_integral += controller->encoder_bias;
+  if (Balance_AbsFloat(angle_bias) <= BALANCE_VELOCITY_INTEGRAL_ANGLE_DEG)
+  {
+    controller->encoder_integral += controller->encoder_bias;
+  }
+  else
+  {
+    controller->encoder_integral *= BALANCE_VELOCITY_INTEGRAL_DECAY;
+  }
   if (controller->encoder_integral > BALANCE_VELOCITY_INTEGRAL_LIMIT)
   {
     controller->encoder_integral = BALANCE_VELOCITY_INTEGRAL_LIMIT;
@@ -101,6 +131,13 @@ BalanceOutput_t BalanceControl_Update(BalanceController_t *controller,
 
   velocity_pwm = (-BALANCE_VELOCITY_KP * controller->encoder_bias) -
                  (BALANCE_VELOCITY_KI * controller->encoder_integral);
+  velocity_pwm = Balance_ClampFloat(velocity_pwm, BALANCE_VELOCITY_PWM_LIMIT);
+#else
+  (void)encoder_left;
+  (void)encoder_right;
+  BalanceControl_Reset(controller);
+  velocity_pwm = 0.0f;
+#endif
 
   left_pwm = balance_pwm + velocity_pwm;
   right_pwm = balance_pwm + velocity_pwm;
