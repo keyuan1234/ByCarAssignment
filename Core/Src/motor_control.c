@@ -12,15 +12,27 @@ static uint16_t right_previous_count;
 
 static int16_t Motor_ClampPWM(int32_t value)
 {
-  if (value > MOTOR_PWM_PERIOD_COUNTS)
+  if (value > MOTOR_PWM_LIMIT_COUNTS)
   {
-    return MOTOR_PWM_PERIOD_COUNTS;
+    return MOTOR_PWM_LIMIT_COUNTS;
   }
-  if (value < -MOTOR_PWM_PERIOD_COUNTS)
+  if (value < -MOTOR_PWM_LIMIT_COUNTS)
   {
-    return -MOTOR_PWM_PERIOD_COUNTS;
+    return -MOTOR_PWM_LIMIT_COUNTS;
   }
   return (int16_t)value;
+}
+
+static int16_t Motor_ApplyScale(int16_t value, int32_t numerator, int32_t denominator)
+{
+  int32_t scaled;
+
+  if (denominator == 0)
+  {
+    denominator = 1;
+  }
+  scaled = ((int32_t)value * numerator) / denominator;
+  return Motor_ClampPWM(scaled);
 }
 
 static uint32_t Motor_PWMCompareFromMagnitude(int32_t magnitude)
@@ -29,9 +41,9 @@ static uint32_t Motor_PWMCompareFromMagnitude(int32_t magnitude)
   {
     magnitude = -magnitude;
   }
-  if (magnitude > MOTOR_PWM_PERIOD_COUNTS)
+  if (magnitude > MOTOR_PWM_LIMIT_COUNTS)
   {
-    magnitude = MOTOR_PWM_PERIOD_COUNTS;
+    magnitude = MOTOR_PWM_LIMIT_COUNTS;
   }
   return (uint32_t)(MOTOR_PWM_PERIOD_COUNTS - magnitude);
 }
@@ -49,12 +61,7 @@ void Motor_Init(void)
   motor_telemetry.left_pwm = 0;
   motor_telemetry.right_pwm = 0;
 
-  /* AT8236 braking state: IN1=1 and IN2=1 on both bridges. */
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, MOTOR_PWM_PERIOD_COUNTS);
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, MOTOR_PWM_PERIOD_COUNTS);
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, MOTOR_PWM_PERIOD_COUNTS);
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, MOTOR_PWM_PERIOD_COUNTS);
-
+  Motor_Brake();
   if ((HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) != HAL_OK) ||
       (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2) != HAL_OK) ||
       (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK) ||
@@ -74,6 +81,16 @@ void Motor_Init(void)
   right_previous_count = (uint16_t)__HAL_TIM_GET_COUNTER(&htim8);
 }
 
+void Motor_Brake(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, MOTOR_PWM_PERIOD_COUNTS);
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, MOTOR_PWM_PERIOD_COUNTS);
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, MOTOR_PWM_PERIOD_COUNTS);
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, MOTOR_PWM_PERIOD_COUNTS);
+  motor_telemetry.left_pwm = 0;
+  motor_telemetry.right_pwm = 0;
+}
+
 void Motor_SetPWM(int16_t left, int16_t right)
 {
   uint32_t left_compare;
@@ -81,10 +98,11 @@ void Motor_SetPWM(int16_t left, int16_t right)
 
   left = Motor_ClampPWM((int32_t)left * MOTOR_LEFT_COMMAND_SIGN);
   right = Motor_ClampPWM((int32_t)right * MOTOR_RIGHT_COMMAND_SIGN);
+  left = Motor_ApplyScale(left, MOTOR_LEFT_PWM_NUM, MOTOR_LEFT_PWM_DEN);
+  right = Motor_ApplyScale(right, MOTOR_RIGHT_PWM_NUM, MOTOR_RIGHT_PWM_DEN);
   left_compare = Motor_PWMCompareFromMagnitude(left);
   right_compare = Motor_PWMCompareFromMagnitude(right);
 
-  /* The motors are mirrored on the chassis, so their forward bridge states differ. */
   if (left > 0)
   {
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, MOTOR_PWM_PERIOD_COUNTS);
@@ -148,50 +166,4 @@ void Encoder_Update10ms(void)
 const MotorTelemetry_t *Motor_GetTelemetry(void)
 {
   return &motor_telemetry;
-}
-
-void PI_Init(PIController_t *controller, float kp, float ki)
-{
-  controller->kp = kp;
-  controller->ki = ki;
-  PI_Reset(controller);
-}
-
-void PI_Reset(PIController_t *controller)
-{
-  controller->previous_error = 0.0f;
-  controller->output = 0.0f;
-}
-
-int16_t PI_Update(PIController_t *controller, float target, float measured)
-{
-  float error;
-  float increment;
-
-  if (target == 0.0f)
-  {
-    PI_Reset(controller);
-    return 0;
-  }
-
-  error = target - measured;
-  increment = controller->kp * (error - controller->previous_error) +
-              controller->ki * MOTOR_CONTROL_PERIOD_S * error;
-  controller->output += increment;
-
-  if (controller->output > (float)MOTOR_PWM_PERIOD_COUNTS)
-  {
-    controller->output = (float)MOTOR_PWM_PERIOD_COUNTS;
-  }
-  else if (controller->output < (float)-MOTOR_PWM_PERIOD_COUNTS)
-  {
-    controller->output = (float)-MOTOR_PWM_PERIOD_COUNTS;
-  }
-
-  controller->previous_error = error;
-  if (controller->output >= 0.0f)
-  {
-    return (int16_t)(controller->output + 0.5f);
-  }
-  return (int16_t)(controller->output - 0.5f);
 }

@@ -3,8 +3,8 @@
  * Auto generated Run-Time-Environment Configuration File
  *      *** Do not modify ! ***
  *
- * Project: 'ByCar' 
- * Target:  'ByCar' 
+ * Project: 'MiniBalance' 
+ * Target:  'MiniBalance' 
  */
 
 #ifndef RTE_COMPONENTS_H

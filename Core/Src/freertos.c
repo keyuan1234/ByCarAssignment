@@ -25,11 +25,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "balance_control.h"
+#include "imu.h"
 #include "motor_control.h"
 #include "usart.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -39,15 +41,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define MOTOR_TASK_PERIOD_MS          10U
-#define OPEN_LOOP_RUN_MS              3000U
-#define OPEN_LOOP_STOP_MS             1000U
-#define DEADZONE_DWELL_MS             1000U
-#define DEADZONE_MAX_PERCENT          50U
-#define DEADZONE_MIN_WINDOW_COUNTS    3U
-#define PI_STEP_DELAY_MS              1000U
-#define PI_TARGET_MM_S                200
-
+#define BALANCE_TELEMETRY_PERIOD_MS  50U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,33 +53,42 @@
 /* USER CODE BEGIN Variables */
 
 /* USER CODE END Variables */
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
 /* Definitions for motorTask */
 osThreadId_t motorTaskHandle;
 const osThreadAttr_t motorTask_attributes = {
   .name = "motorTask",
-  .stack_size = 256 * 4,
+  .stack_size = 384 * 4,
   .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for DataTask */
+osThreadId_t DataTaskHandle;
+const osThreadAttr_t DataTask_attributes = {
+  .name = "DataTask",
+  .stack_size = 384 * 4,
+  .priority = (osPriority_t) osPriorityHigh,
+};
+/* Definitions for MPUQueue */
+osMessageQueueId_t MPUQueueHandle;
+const osMessageQueueAttr_t MPUQueue_attributes = {
+  .name = "MPUQueue"
 };
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-static void MotorTask_SendText(const char *text);
-static void MotorTask_SendBanner(float kp, float ki);
-static void MotorTask_SendTelemetry(uint32_t elapsed_ms, int32_t target_left,
-                                    int32_t target_right);
-static int32_t MotorTask_RoundFloat(float value);
-
+static void App_SendText(const char *text);
+static void App_SendBanner(void);
+static void App_SendTelemetry(uint32_t now_ms,
+                              const BalanceSample_t *sample,
+                              const MotorTelemetry_t *telemetry,
+                              const BalanceOutput_t *output);
+static void App_FormatFloat(char *out, size_t out_size, float value,
+                            uint8_t decimals);
+static int32_t App_RoundFloat(float value);
+static const char *App_StateText(BalanceState_t state);
 /* USER CODE END FunctionPrototypes */
 
-void StartDefaultTask(void *argument);
 void StartmotorTask(void *argument);
+void StartDataTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -111,16 +114,32 @@ void MX_FREERTOS_Init(void) {
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
+  /* Create the queue(s) */
+  /* creation of MPUQueue */
+  MPUQueueHandle = osMessageQueueNew (16, sizeof(BalanceSample_t), &MPUQueue_attributes);
+  if (MPUQueueHandle == NULL)
+  {
+    App_SendText("#balance,error,queue_create_failed\r\n");
+  }
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-
   /* creation of motorTask */
   motorTaskHandle = osThreadNew(StartmotorTask, NULL, &motorTask_attributes);
+  if (motorTaskHandle == NULL)
+  {
+    App_SendText("#balance,error,motor_task_create_failed\r\n");
+  }
+
+  /* creation of DataTask */
+  DataTaskHandle = osThreadNew(StartDataTask, NULL, &DataTask_attributes);
+  if (DataTaskHandle == NULL)
+  {
+    App_SendText("#balance,error,data_task_create_failed\r\n");
+  }
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -132,260 +151,244 @@ void MX_FREERTOS_Init(void) {
 
 }
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_StartmotorTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  Function implementing the motorTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
-  /* USER CODE BEGIN StartDefaultTask */
-  (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartDefaultTask */
-}
-
-/* USER CODE BEGIN Header_StartmotorTask */
-/**
-* @brief Function implementing the motorTask thread.
-* @param argument: Not used
-* @retval None
-*/
 /* USER CODE END Header_StartmotorTask */
 void StartmotorTask(void *argument)
 {
   /* USER CODE BEGIN StartmotorTask */
-#if MOTOR_EXPERIMENT_MODE == MOTOR_EXPERIMENT_OPEN_LOOP
-  static const uint8_t open_loop_percent[] = {20U, 35U, 50U, 65U, 80U};
-#endif
-#if MOTOR_EXPERIMENT_MODE == MOTOR_EXPERIMENT_PI_CLOSED_LOOP
-  PIController_t left_pi;
-  PIController_t right_pi;
-#endif
+  BalanceController_t controller;
+  BalanceSample_t latest_sample;
+  BalanceOutput_t output;
+  const MotorTelemetry_t *telemetry;
   uint32_t next_wake;
-  uint32_t elapsed_ms = 0U;
-  int16_t left_pwm = 0;
-  int16_t right_pwm = 0;
-  int32_t target_left = 0;
-  int32_t target_right = 0;
-  float kp;
-  float ki;
+  uint32_t last_telemetry_ms = 0U;
+  uint8_t have_sample = 0U;
+  osStatus_t queue_status;
 
   (void)argument;
-
-#if MOTOR_PI_PARAMETER_SET == 0U
-  kp = 2.0f;
-  ki = 15.0f;
-#elif MOTOR_PI_PARAMETER_SET == 1U
-  kp = 4.0f;
-  ki = 30.0f;
-#elif MOTOR_PI_PARAMETER_SET == 2U
-  kp = 6.0f;
-  ki = 45.0f;
-#else
-#error "MOTOR_PI_PARAMETER_SET must be 0, 1, or 2"
-#endif
+  memset(&latest_sample, 0, sizeof(latest_sample));
+  memset(&output, 0, sizeof(output));
+  output.state = BALANCE_STATE_TIMEOUT;
 
   Motor_Init();
-#if MOTOR_EXPERIMENT_MODE == MOTOR_EXPERIMENT_PI_CLOSED_LOOP
-  PI_Init(&left_pi, kp, ki);
-  PI_Init(&right_pi, kp, ki);
-#endif
-  MotorTask_SendBanner(kp, ki);
+  BalanceControl_Init(&controller);
+  App_SendBanner();
   next_wake = osKernelGetTickCount();
 
+  /* Infinite loop */
   for(;;)
   {
-    const MotorTelemetry_t *telemetry;
+    uint32_t now_ms;
 
+    do
+    {
+      queue_status = osMessageQueueGet(MPUQueueHandle, &latest_sample, NULL, 0U);
+      if (queue_status == osOK)
+      {
+        have_sample = 1U;
+      }
+    } while (queue_status == osOK);
+
+    now_ms = HAL_GetTick();
     Encoder_Update10ms();
     telemetry = Motor_GetTelemetry();
-    (void)telemetry;
 
-#if MOTOR_EXPERIMENT_MODE == MOTOR_EXPERIMENT_OPEN_LOOP
+    if (have_sample == 0U)
     {
-      uint32_t stage = elapsed_ms / (OPEN_LOOP_RUN_MS + OPEN_LOOP_STOP_MS);
-      uint32_t stage_time = elapsed_ms % (OPEN_LOOP_RUN_MS + OPEN_LOOP_STOP_MS);
-      if ((stage < (sizeof(open_loop_percent) / sizeof(open_loop_percent[0]))) &&
-          (stage_time < OPEN_LOOP_RUN_MS))
-      {
-        left_pwm = (int16_t)((uint32_t)open_loop_percent[stage] *
-                             MOTOR_PWM_PERIOD_COUNTS / 100U);
-        right_pwm = left_pwm;
-      }
-      else
-      {
-        left_pwm = 0;
-        right_pwm = 0;
-      }
+      BalanceControl_Reset(&controller);
+      Motor_Brake();
+      memset(&output, 0, sizeof(output));
+      output.state = BALANCE_STATE_TIMEOUT;
     }
-#elif MOTOR_EXPERIMENT_MODE == MOTOR_EXPERIMENT_DEADZONE
+    else if (latest_sample.valid == 0U)
     {
-      static uint8_t side = 0U;
-      static uint8_t duty_percent = 1U;
-      static uint16_t sample_count = 0U;
-      static uint32_t movement_count = 0U;
-      static uint16_t pause_samples = 0U;
-      char event_line[96];
-
-      left_pwm = 0;
-      right_pwm = 0;
-      if (side < 2U)
-      {
-        if (pause_samples > 0U)
-        {
-          pause_samples--;
-        }
-        else
-        {
-          int16_t scan_pwm = (int16_t)((uint32_t)duty_percent *
-                                       MOTOR_PWM_PERIOD_COUNTS / 100U);
-          int16_t delta = (side == 0U) ? telemetry->left_delta : telemetry->right_delta;
-          if (side == 0U)
-          {
-            left_pwm = scan_pwm;
-          }
-          else
-          {
-            right_pwm = scan_pwm;
-          }
-          movement_count += (delta < 0) ? (uint32_t)(-delta) : (uint32_t)delta;
-          sample_count++;
-
-          if (sample_count >= (DEADZONE_DWELL_MS / MOTOR_TASK_PERIOD_MS))
-          {
-            if (movement_count >= DEADZONE_MIN_WINDOW_COUNTS)
-            {
-              (void)snprintf(event_line, sizeof(event_line),
-                             "#deadzone,%s,%u,%u\r\n",
-                             (side == 0U) ? "left" : "right",
-                             duty_percent, (unsigned int)scan_pwm);
-              MotorTask_SendText(event_line);
-              side++;
-              duty_percent = 1U;
-              pause_samples = (uint16_t)(OPEN_LOOP_STOP_MS / MOTOR_TASK_PERIOD_MS);
-            }
-            else if (duty_percent >= DEADZONE_MAX_PERCENT)
-            {
-              (void)snprintf(event_line, sizeof(event_line),
-                             "#deadzone,%s,not_found,0\r\n",
-                             (side == 0U) ? "left" : "right");
-              MotorTask_SendText(event_line);
-              side++;
-              duty_percent = 1U;
-              pause_samples = (uint16_t)(OPEN_LOOP_STOP_MS / MOTOR_TASK_PERIOD_MS);
-            }
-            else
-            {
-              duty_percent++;
-            }
-            sample_count = 0U;
-            movement_count = 0U;
-          }
-        }
-      }
+      BalanceControl_Reset(&controller);
+      Motor_Brake();
+      memset(&output, 0, sizeof(output));
+      output.state = BALANCE_STATE_IMU_ERROR;
     }
-#elif MOTOR_EXPERIMENT_MODE == MOTOR_EXPERIMENT_ENCODER_VERIFY
+    else if ((now_ms - latest_sample.timestamp_ms) > BALANCE_SAMPLE_TIMEOUT_MS)
     {
-      static uint8_t left_reported = 0U;
-      static uint8_t right_reported = 0U;
-      left_pwm = 0;
-      right_pwm = 0;
-      if ((left_reported == 0U) &&
-          ((telemetry->left_total >= (int32_t)MOTOR_ENCODER_COUNTS_PER_REV) ||
-           (telemetry->left_total <= -(int32_t)MOTOR_ENCODER_COUNTS_PER_REV)))
-      {
-        MotorTask_SendText("#encoder,left,reached_1560\r\n");
-        left_reported = 1U;
-      }
-      if ((right_reported == 0U) &&
-          ((telemetry->right_total >= (int32_t)MOTOR_ENCODER_COUNTS_PER_REV) ||
-           (telemetry->right_total <= -(int32_t)MOTOR_ENCODER_COUNTS_PER_REV)))
-      {
-        MotorTask_SendText("#encoder,right,reached_1560\r\n");
-        right_reported = 1U;
-      }
-    }
-#elif MOTOR_EXPERIMENT_MODE == MOTOR_EXPERIMENT_PI_CLOSED_LOOP
-    if (elapsed_ms >= PI_STEP_DELAY_MS)
-    {
-      target_left = PI_TARGET_MM_S;
-      target_right = PI_TARGET_MM_S;
+      BalanceControl_Reset(&controller);
+      Motor_Brake();
+      memset(&output, 0, sizeof(output));
+      output.state = BALANCE_STATE_TIMEOUT;
     }
     else
     {
-      target_left = 0;
-      target_right = 0;
+      output = BalanceControl_Update(&controller, &latest_sample,
+                                     telemetry->left_delta,
+                                     telemetry->right_delta);
+      if (output.state == BALANCE_STATE_RUNNING)
+      {
+        Motor_SetPWM(output.left_pwm, output.right_pwm);
+      }
+      else
+      {
+        Motor_Brake();
+      }
     }
-    left_pwm = PI_Update(&left_pi, (float)target_left,
-                         telemetry->left_filtered_mm_s);
-    right_pwm = PI_Update(&right_pi, (float)target_right,
-                          telemetry->right_filtered_mm_s);
-#else
-#error "Invalid MOTOR_EXPERIMENT_MODE"
-#endif
 
-    Motor_SetPWM(left_pwm, right_pwm);
-    MotorTask_SendTelemetry(elapsed_ms, target_left, target_right);
-    elapsed_ms += MOTOR_TASK_PERIOD_MS;
-    next_wake += MOTOR_TASK_PERIOD_MS;
+    if ((now_ms - last_telemetry_ms) >= BALANCE_TELEMETRY_PERIOD_MS)
+    {
+      App_SendTelemetry(now_ms, &latest_sample, telemetry, &output);
+      last_telemetry_ms = now_ms;
+    }
+
+    next_wake += MOTOR_CONTROL_PERIOD_MS;
     (void)osDelayUntil(next_wake);
   }
   /* USER CODE END StartmotorTask */
 }
 
+/* USER CODE BEGIN Header_StartDataTask */
+/**
+* @brief Function implementing the DataTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartDataTask */
+void StartDataTask(void *argument)
+{
+  /* USER CODE BEGIN StartDataTask */
+  BalanceSample_t sample;
+  BalanceSample_t dropped_sample;
+  uint32_t next_wake;
+
+  (void)argument;
+  memset(&sample, 0, sizeof(sample));
+
+  if (Imu_Init() == 0U)
+  {
+    App_SendText("#balance,error,imu_init_failed\r\n");
+    for (;;)
+    {
+      sample.timestamp_ms = HAL_GetTick();
+      sample.valid = 0U;
+      if (osMessageQueuePut(MPUQueueHandle, &sample, 0U, 0U) != osOK)
+      {
+        (void)osMessageQueueGet(MPUQueueHandle, &dropped_sample, NULL, 0U);
+        (void)osMessageQueuePut(MPUQueueHandle, &sample, 0U, 0U);
+      }
+      osDelay(100U);
+    }
+  }
+
+  App_SendText("#balance,imu_init_ok\r\n");
+  next_wake = osKernelGetTickCount();
+
+  /* Infinite loop */
+  for(;;)
+  {
+    (void)Imu_UpdateComplementary5ms(&sample);
+    if (osMessageQueuePut(MPUQueueHandle, &sample, 0U, 0U) != osOK)
+    {
+      (void)osMessageQueueGet(MPUQueueHandle, &dropped_sample, NULL, 0U);
+      (void)osMessageQueuePut(MPUQueueHandle, &sample, 0U, 0U);
+    }
+
+    next_wake += IMU_SAMPLE_PERIOD_MS;
+    (void)osDelayUntil(next_wake);
+  }
+  /* USER CODE END StartDataTask */
+}
+
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
-static void MotorTask_SendText(const char *text)
+static void App_SendText(const char *text)
 {
-  (void)HAL_UART_Transmit(&huart1, (uint8_t *)text, (uint16_t)strlen(text), 50U);
+  if (text == NULL)
+  {
+    return;
+  }
+  (void)HAL_UART_Transmit(&huart1, (uint8_t *)text,
+                          (uint16_t)strlen(text), 100U);
 }
 
-static void MotorTask_SendBanner(float kp, float ki)
+static void App_SendBanner(void)
 {
-  char line[180];
-  MotorTask_SendText("#motor_control,C10B_AT8236\r\n");
+  App_SendText("#balance,ByCarStable,cascade_pid_stand\r\n");
+  App_SendText("#map,pwm_l=TIM3_CH1_CH2,pwm_r=TIM3_CH3_CH4,enc_l=TIM4,enc_r=TIM8,imu=PB14_PB15\r\n");
+  App_SendText("ms,pitch,gyro,enc_l,enc_r,balance_pwm,velocity_pwm,pwm_l,pwm_r,state\r\n");
+}
+
+static void App_SendTelemetry(uint32_t now_ms,
+                              const BalanceSample_t *sample,
+                              const MotorTelemetry_t *telemetry,
+                              const BalanceOutput_t *output)
+{
+  char line[192];
+  char pitch_text[18];
+  char gyro_text[18];
+  float pitch = 0.0f;
+  float gyro = 0.0f;
+
+  if ((sample != NULL) && (sample->valid != 0U))
+  {
+    pitch = sample->pitch_deg;
+    gyro = sample->gyro_pitch_dps;
+  }
+  App_FormatFloat(pitch_text, sizeof(pitch_text), pitch, 2U);
+  App_FormatFloat(gyro_text, sizeof(gyro_text), gyro, 2U);
+
   (void)snprintf(line, sizeof(line),
-                 "#config,mode=%u,wheel_mm=80,cpr=1560,pi_set=%u,kp_x100=%ld,ki_x100=%ld\r\n",
-                 (unsigned int)MOTOR_EXPERIMENT_MODE,
-                 (unsigned int)MOTOR_PI_PARAMETER_SET,
-                 (long)MotorTask_RoundFloat(kp * 100.0f),
-                 (long)MotorTask_RoundFloat(ki * 100.0f));
-  MotorTask_SendText(line);
-  MotorTask_SendText("#map,left_pwm=PA6_PA7,right_pwm=PB0_PB1,left_enc=TIM4_PB6_PB7,right_enc=TIM8_PC6_PC7\r\n");
-  MotorTask_SendText("#notice,hardware_cpr_1560_differs_from_assignment_2000\r\n");
-  MotorTask_SendText("ms,mode,target_l,target_r,raw_l,raw_r,speed_l,speed_r,pwm_l,pwm_r,count_l,count_r\r\n");
+                 "%lu,%s,%s,%d,%d,%d,%d,%d,%d,%s\r\n",
+                 (unsigned long)now_ms,
+                 pitch_text,
+                 gyro_text,
+                 (telemetry == NULL) ? 0 : telemetry->left_delta,
+                 (telemetry == NULL) ? 0 : telemetry->right_delta,
+                 (output == NULL) ? 0 : output->balance_pwm,
+                 (output == NULL) ? 0 : output->velocity_pwm,
+                 (output == NULL) ? 0 : output->left_pwm,
+                 (output == NULL) ? 0 : output->right_pwm,
+                 (output == NULL) ? App_StateText(BALANCE_STATE_STOPPED) :
+                                    App_StateText(output->state));
+  App_SendText(line);
 }
 
-static void MotorTask_SendTelemetry(uint32_t elapsed_ms, int32_t target_left,
-                                    int32_t target_right)
+static void App_FormatFloat(char *out, size_t out_size, float value,
+                            uint8_t decimals)
 {
-  const MotorTelemetry_t *telemetry = Motor_GetTelemetry();
-  char line[180];
-  (void)snprintf(line, sizeof(line),
-                 "%lu,%u,%ld,%ld,%ld,%ld,%ld,%ld,%d,%d,%ld,%ld\r\n",
-                 (unsigned long)elapsed_ms,
-                 (unsigned int)MOTOR_EXPERIMENT_MODE,
-                 (long)target_left,
-                 (long)target_right,
-                 (long)MotorTask_RoundFloat(telemetry->left_raw_mm_s),
-                 (long)MotorTask_RoundFloat(telemetry->right_raw_mm_s),
-                 (long)MotorTask_RoundFloat(telemetry->left_filtered_mm_s),
-                 (long)MotorTask_RoundFloat(telemetry->right_filtered_mm_s),
-                 telemetry->left_pwm,
-                 telemetry->right_pwm,
-                 (long)telemetry->left_total,
-                 (long)telemetry->right_total);
-  MotorTask_SendText(line);
+  int32_t scale = 1;
+  int32_t scaled;
+  int32_t whole;
+  int32_t fraction;
+  uint8_t i;
+
+  if ((out == NULL) || (out_size == 0U))
+  {
+    return;
+  }
+
+  for (i = 0U; i < decimals; i++)
+  {
+    scale *= 10;
+  }
+
+  scaled = App_RoundFloat(value * (float)scale);
+  if (scaled < 0)
+  {
+    whole = (-scaled) / scale;
+    fraction = (-scaled) % scale;
+    (void)snprintf(out, out_size, "-%ld.%0*ld",
+                   (long)whole, decimals, (long)fraction);
+  }
+  else
+  {
+    whole = scaled / scale;
+    fraction = scaled % scale;
+    (void)snprintf(out, out_size, "%ld.%0*ld",
+                   (long)whole, decimals, (long)fraction);
+  }
 }
 
-static int32_t MotorTask_RoundFloat(float value)
+static int32_t App_RoundFloat(float value)
 {
   if (value >= 0.0f)
   {
@@ -394,5 +397,22 @@ static int32_t MotorTask_RoundFloat(float value)
   return (int32_t)(value - 0.5f);
 }
 
-/* USER CODE END Application */
+static const char *App_StateText(BalanceState_t state)
+{
+  switch (state)
+  {
+    case BALANCE_STATE_RUNNING:
+      return "RUN";
+    case BALANCE_STATE_IMU_ERROR:
+      return "IMU_ERROR";
+    case BALANCE_STATE_TILT:
+      return "TILT";
+    case BALANCE_STATE_TIMEOUT:
+      return "TIMEOUT";
+    case BALANCE_STATE_STOPPED:
+    default:
+      return "STOPPED";
+  }
+}
 
+/* USER CODE END Application */
