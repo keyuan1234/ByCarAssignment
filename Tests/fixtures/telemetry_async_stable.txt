@@ -1,0 +1,11 @@
+#balance,imu_init_ok
+#balance,ByCarStable,true_cascade_pid_stand
+#rtos,telemetry=async_queue,control_period_ms=10
+ms,pitch,gyro,enc_l,enc_r,target_angle,velocity_angle,balance_pwm,pwm_l,pwm_r,loop_dt_max,state
+#config,trial=5,mode=CASCADE_PI_PD,middle=-1.00,balance_kp=300.00,balance_kd=12.00,velocity_kp=0.003,velocity_ki=0.00000,velocity_angle_limit=1.50,velocity_angle_slew=0.05,outer_fade_start=2.00,outer_disable_angle=4.00
+0,-1.00,0.00,0,0,-1.00,0.00,0,0,0,10,RUN
+1000,-0.90,0.10,1,1,-0.99,0.01,28,28,28,11,RUN
+2000,-1.10,-0.20,-1,-1,-1.01,-0.01,-29,-29,-29,10,RUN
+3000,-0.95,0.10,1,0,-1.00,0.00,16,16,16,11,RUN
+4000,-1.05,-0.10,0,-1,-1.00,0.00,-16,-16,-16,10,RUN
+5000,-1.00,0.00,0,0,-1.00,0.00,0,0,0,10,RUN

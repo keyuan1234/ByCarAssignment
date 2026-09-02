@@ -1,0 +1,7 @@
+#config,trial=5,mode=CASCADE_PI_PD,middle=-2.20,balance_kp=330.00,balance_kd=16.00,velocity_kp=0.003,velocity_ki=0.00000,velocity_angle_limit=1.00,pwm_map=linear,pwm_deadband=80,pwm_deadzone_l=360,pwm_deadzone_r=360,pwm_limit=6900
+ms,pitch,gyro,enc_l,enc_r,target_angle,velocity_angle,balance_pwm,pwm_l,pwm_r,loop_dt_max,state
+0,-2.20,0.00,0,0,-2.20,0.00,0,0,0,10,RUN
+50,-2.10,0.00,0,0,-2.20,0.00,50,0,0,10,RUN
+100,-2.00,0.00,1,1,-2.20,0.00,100,379,379,10,RUN
+150,-2.30,0.00,-2,-2,-2.20,0.00,-500,-763,-763,10,RUN
+200,-2.20,0.00,0,0,-2.20,0.00,0,0,0,10,RUN

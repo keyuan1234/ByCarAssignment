@@ -1,0 +1,9 @@
+bycarstable\oled_dashboard.o: ../Core/Src/oled_dashboard.c
+bycarstable\oled_dashboard.o: ../Core/Inc/oled_dashboard.h
+bycarstable\oled_dashboard.o: ../Core/Inc/balance_types.h
+bycarstable\oled_dashboard.o: D:\Keil\keil5\ARM\ARMCC\Bin\..\include\stdint.h
+bycarstable\oled_dashboard.o: ../Core/Inc/line_tracking.h
+bycarstable\oled_dashboard.o: ../Core/Inc/oled.h
+bycarstable\oled_dashboard.o: D:\Keil\keil5\ARM\ARMCC\Bin\..\include\stddef.h
+bycarstable\oled_dashboard.o: D:\Keil\keil5\ARM\ARMCC\Bin\..\include\stdio.h
+bycarstable\oled_dashboard.o: D:\Keil\keil5\ARM\ARMCC\Bin\..\include\string.h
